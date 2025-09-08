@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/Header";
 import { Overview } from "@/components/dashboard/Overview";
 import { ContainerList } from "@/components/dashboard/ContainerList";
 import { UpdateManager } from "@/components/dashboard/UpdateManager";
+import { ProxmoxConfig } from "@/components/dashboard/ProxmoxConfig";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -31,12 +32,7 @@ const Index = () => {
           </div>
         );
       case "settings":
-        return (
-          <div className="text-center py-12">
-            <h3 className="text-lg font-medium mb-2">Instellingen</h3>
-            <p className="text-muted-foreground">Configureer systeem instellingen en voorkeuren.</p>
-          </div>
-        );
+        return <ProxmoxConfig />;
       default:
         return <Overview />;
     }

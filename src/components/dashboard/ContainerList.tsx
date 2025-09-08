@@ -1,83 +1,73 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Play, Square, RotateCcw, Settings, Terminal } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Play, Square, RotateCcw, Settings, Terminal, RefreshCw, AlertTriangle } from "lucide-react";
+import { proxmoxApi, ProxmoxContainer } from "@/services/proxmoxApi";
+import { useToast } from "@/hooks/use-toast";
 
 export function ContainerList() {
-  // Mock container data - would come from API
-  const containers = [
-    {
-      id: 100,
-      name: "web-server",
-      description: "Nginx Web Server",
-      status: "running",
-      cpu: 15,
-      memory: 45,
-      disk: 23,
-      network: "192.168.1.100",
-      uptime: "2d 4h 32m",
-      template: "debian-12-standard",
-      cores: 2,
-      ram: "1024MB",
-    },
-    {
-      id: 101,
-      name: "database",
-      description: "PostgreSQL Database",
-      status: "running",
-      cpu: 35,
-      memory: 78,
-      disk: 67,
-      network: "192.168.1.101",
-      uptime: "5d 2h 15m",
-      template: "debian-12-standard",
-      cores: 4,
-      ram: "4096MB",
-    },
-    {
-      id: 102,
-      name: "backup-service",
-      description: "Backup & Archive Service",
-      status: "stopped",
-      cpu: 0,
-      memory: 0,
-      disk: 12,
-      network: "192.168.1.102",
-      uptime: "-",
-      template: "debian-12-standard",
-      cores: 1,
-      ram: "512MB",
-    },
-    {
-      id: 103,
-      name: "monitoring",
-      description: "Prometheus & Grafana",
-      status: "running",
-      cpu: 8,
-      memory: 23,
-      disk: 45,
-      network: "192.168.1.103",
-      uptime: "1d 8h 22m",
-      template: "debian-12-standard",
-      cores: 2,
-      ram: "2048MB",
-    },
-    {
-      id: 104,
-      name: "mail-server",
-      description: "Postfix Mail Server",
-      status: "error",
-      cpu: 0,
-      memory: 0,
-      disk: 8,
-      network: "192.168.1.104",
-      uptime: "-",
-      template: "debian-12-standard",
-      cores: 1,
-      ram: "1024MB",
-    },
-  ];
+  const [containers, setContainers] = useState<ProxmoxContainer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadContainers();
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(loadContainers, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadContainers = async () => {
+    try {
+      setError(null);
+      const data = await proxmoxApi.getContainers();
+      setContainers(data);
+    } catch (err) {
+      setError('Kan geen verbinding maken met Proxmox. Controleer je configuratie.');
+      console.error('Failed to load containers:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadContainers();
+  };
+
+  const handleContainerAction = async (action: 'start' | 'stop' | 'restart', container: ProxmoxContainer) => {
+    try {
+      switch (action) {
+        case 'start':
+          await proxmoxApi.startContainer(container.node, container.vmid);
+          toast({ title: `${container.name} wordt gestart...` });
+          break;
+        case 'stop':
+          await proxmoxApi.stopContainer(container.node, container.vmid);
+          toast({ title: `${container.name} wordt gestopt...` });
+          break;
+        case 'restart':
+          await proxmoxApi.restartContainer(container.node, container.vmid);
+          toast({ title: `${container.name} wordt herstart...` });
+          break;
+      }
+      
+      // Refresh data after action
+      setTimeout(loadContainers, 2000);
+    } catch (err) {
+      toast({
+        title: "Actie gefaald",
+        description: `Kon ${action} niet uitvoeren op ${container.name}`,
+        variant: "destructive"
+      });
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -105,31 +95,63 @@ export function ContainerList() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium">LXC Containers</h3>
+        </div>
+        <div className="text-center py-12">
+          <RefreshCw className="h-8 w-8 mx-auto animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground mt-2">Containers laden...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-medium">LXC Containers</h3>
-        <Button size="sm" className="bg-gradient-primary text-white">
-          <Play className="h-4 w-4 mr-2" />
-          Nieuwe Container
-        </Button>
+        <div className="flex space-x-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Ververs
+          </Button>
+          <Button size="sm" className="bg-gradient-primary text-white">
+            <Play className="h-4 w-4 mr-2" />
+            Nieuwe Container
+          </Button>
+        </div>
       </div>
+
+      {error && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4">
         {containers.map((container) => (
-          <Card key={container.id} className="shadow-card">
+          <Card key={container.vmid} className="shadow-card">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className={`w-3 h-3 rounded-full ${getStatusColor(container.status)}`} />
                   <div>
                     <CardTitle className="text-base">{container.name}</CardTitle>
-                    <p className="text-sm text-muted-foreground">{container.description}</p>
+                    <p className="text-sm text-muted-foreground">LXC Container - {container.node}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
                   {getStatusBadge(container.status)}
-                  <Badge variant="outline">LXC {container.id}</Badge>
+                  <Badge variant="outline">LXC {container.vmid}</Badge>
                 </div>
               </div>
             </CardHeader>
@@ -139,8 +161,8 @@ export function ContainerList() {
                 <div className="space-y-2">
                   <div className="text-sm font-medium">Configuratie</div>
                   <div className="text-sm text-muted-foreground">
-                    <div>{container.cores} Cores</div>
-                    <div>{container.ram} RAM</div>
+                    <div>{container.maxcpu} Cores</div>
+                    <div>{proxmoxApi.formatBytes(container.maxmem)}</div>
                     <div>{container.template}</div>
                   </div>
                 </div>
@@ -148,8 +170,8 @@ export function ContainerList() {
                 <div className="space-y-2">
                   <div className="text-sm font-medium">Netwerk</div>
                   <div className="text-sm text-muted-foreground">
-                    <div>{container.network}</div>
-                    <div>Uptime: {container.uptime}</div>
+                    <div>{container.net0 || 'Geen netwerk'}</div>
+                    <div>Uptime: {proxmoxApi.formatUptime(container.uptime)}</div>
                   </div>
                 </div>
 
@@ -173,17 +195,29 @@ export function ContainerList() {
               <div className="flex items-center justify-between pt-4 border-t border-border">
                 <div className="flex space-x-2">
                   {container.status === "running" ? (
-                    <Button variant="outline" size="sm">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => handleContainerAction('stop', container)}
+                    >
                       <Square className="h-4 w-4 mr-2" />
                       Stop
                     </Button>
                   ) : (
-                    <Button variant="outline" size="sm">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => handleContainerAction('start', container)}
+                    >
                       <Play className="h-4 w-4 mr-2" />
                       Start
                     </Button>
                   )}
-                  <Button variant="outline" size="sm">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => handleContainerAction('restart', container)}
+                  >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     Herstart
                   </Button>
