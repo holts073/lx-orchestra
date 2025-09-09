@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, RotateCcw, Bell } from "lucide-react";
+import { Moon, Sun, RotateCcw } from "lucide-react";
 import { useTheme } from "@/components/ui/theme-provider";
 import { Badge } from "@/components/ui/badge";
+import { NotificationDropdown } from "./NotificationDropdown";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
@@ -26,14 +27,7 @@ export function Header() {
             Vernieuwen
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-muted-foreground relative"
-          >
-            <Bell className="h-4 w-4" />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full"></div>
-          </Button>
+          <NotificationDropdown />
 
           <Button
             variant="outline"

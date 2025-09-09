@@ -4,16 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Play, Square, RotateCcw, Settings, Terminal, RefreshCw, AlertTriangle } from "lucide-react";
-import { proxmoxApi, ProxmoxContainer } from "@/services/proxmoxApi";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Play, Square, RotateCcw, Settings, Terminal, RefreshCw, AlertTriangle, ChevronDown, Server, Container, Activity } from "lucide-react";
+import { proxmoxApi, ProxmoxContainer, ContainerService } from "@/services/proxmoxApi";
 import { useToast } from "@/hooks/use-toast";
+import { useNotifications } from "@/hooks/useNotifications";
 
 export function ContainerList() {
   const [containers, setContainers] = useState<ProxmoxContainer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
+  const [expandedServices, setExpandedServices] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
+  const { addNotification } = useNotifications();
 
   useEffect(() => {
     loadContainers();
@@ -41,31 +46,91 @@ export function ContainerList() {
     await loadContainers();
   };
 
-  const handleContainerAction = async (action: 'start' | 'stop' | 'restart', container: ProxmoxContainer) => {
+  const handleContainerAction = async (vmid: number, action: string, node: string) => {
+    setActionLoading(prev => ({ ...prev, [vmid]: action }));
+    
     try {
       switch (action) {
         case 'start':
-          await proxmoxApi.startContainer(container.node, container.vmid);
-          toast({ title: `${container.name} wordt gestart...` });
+          await proxmoxApi.startContainer(node, vmid);
           break;
         case 'stop':
-          await proxmoxApi.stopContainer(container.node, container.vmid);
-          toast({ title: `${container.name} wordt gestopt...` });
+          await proxmoxApi.stopContainer(node, vmid);
           break;
         case 'restart':
-          await proxmoxApi.restartContainer(container.node, container.vmid);
-          toast({ title: `${container.name} wordt herstart...` });
+          await proxmoxApi.restartContainer(node, vmid);
           break;
+        case 'console':
+          // Open console in new window - in real implementation this would be a noVNC connection
+          window.open(`https://your-proxmox-host:8006/?console=lxc&vmid=${vmid}&node=${node}`, '_blank');
+          toast({
+            title: "Console Geopend",
+            description: `Console voor container ${vmid} geopend in nieuw venster`,
+          });
+          return;
+        default:
+          throw new Error(`Unknown action: ${action}`);
       }
-      
-      // Refresh data after action
-      setTimeout(loadContainers, 2000);
-    } catch (err) {
+
       toast({
-        title: "Actie gefaald",
-        description: `Kon ${action} niet uitvoeren op ${container.name}`,
-        variant: "destructive"
+        title: `Container ${action}`,
+        description: `${action} actie succesvol uitgevoerd voor container ${vmid}`,
       });
+
+      addNotification({
+        type: 'success',
+        title: 'Container Actie',
+        message: `Container ${vmid} - ${action} succesvol uitgevoerd`,
+        read: false,
+        containerId: vmid,
+      });
+      
+      // Refresh containers after action
+      await loadContainers();
+    } catch (error) {
+      console.error(`Failed to ${action} container ${vmid}:`, error);
+      toast({
+        title: "Fout",
+        description: `Kon ${action} actie niet uitvoeren voor container ${vmid}`,
+        variant: "destructive",
+      });
+
+      addNotification({
+        type: 'error',
+        title: 'Container Fout',
+        message: `Container ${vmid} - ${action} actie mislukt`,
+        read: false,
+        containerId: vmid,
+      });
+    } finally {
+      setActionLoading(prev => {
+        const newState = { ...prev };
+        delete newState[vmid];
+        return newState;
+      });
+    }
+  };
+
+  const loadContainerServices = async (vmid: number, node: string) => {
+    try {
+      const services = await proxmoxApi.getContainerServices(node, vmid);
+      setContainers(prev => 
+        prev.map(container => 
+          container.vmid === vmid 
+            ? { ...container, services }
+            : container
+        )
+      );
+    } catch (error) {
+      console.error(`Failed to load services for container ${vmid}:`, error);
+    }
+  };
+
+  const toggleServicesView = async (vmid: number, node: string) => {
+    setExpandedServices(prev => ({ ...prev, [vmid]: !prev[vmid] }));
+    
+    if (!expandedServices[vmid]) {
+      await loadContainerServices(vmid, node);
     }
   };
 
@@ -192,46 +257,102 @@ export function ContainerList() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-border">
-                <div className="flex space-x-2">
-                  {container.status === "running" ? (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleContainerAction('stop', container)}
-                    >
-                      <Square className="h-4 w-4 mr-2" />
-                      Stop
-                    </Button>
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleContainerAction(container.vmid, 'start', container.node)}
+                  disabled={container.status === 'running' || actionLoading[container.vmid] === 'start'}
+                >
+                  {actionLoading[container.vmid] === 'start' ? (
+                    <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
                   ) : (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleContainerAction('start', container)}
-                    >
-                      <Play className="h-4 w-4 mr-2" />
-                      Start
-                    </Button>
+                    <Play className="w-4 h-4 mr-1" />
                   )}
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => handleContainerAction('restart', container)}
-                  >
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                    Herstart
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <Terminal className="h-4 w-4 mr-2" />
-                    Console
-                  </Button>
-                </div>
-
-                <Button variant="outline" size="sm">
-                  <Settings className="h-4 w-4 mr-2" />
-                  Configuratie
+                  Start
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleContainerAction(container.vmid, 'stop', container.node)}
+                  disabled={container.status === 'stopped' || actionLoading[container.vmid] === 'stop'}
+                >
+                  {actionLoading[container.vmid] === 'stop' ? (
+                    <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Square className="w-4 h-4 mr-1" />
+                  )}
+                  Stop
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleContainerAction(container.vmid, 'restart', container.node)}
+                  disabled={container.status !== 'running' || actionLoading[container.vmid] === 'restart'}
+                >
+                  {actionLoading[container.vmid] === 'restart' ? (
+                    <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                  )}
+                  Herstart
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleContainerAction(container.vmid, 'console', container.node)}
+                >
+                  <Terminal className="w-4 h-4 mr-1" />
+                  Console
                 </Button>
               </div>
+
+              {/* Services Section */}
+              <Collapsible open={expandedServices[container.vmid]} onOpenChange={() => toggleServicesView(container.vmid, container.node)}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between mt-4 p-2">
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4" />
+                      <span>Services & Docker Containers</span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${expandedServices[container.vmid] ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2 mt-2">
+                  {container.services && container.services.length > 0 ? (
+                    container.services.map((service: ContainerService, index: number) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            {service.type === 'docker' ? (
+                              <Container className="w-4 h-4 text-blue-500" />
+                            ) : service.type === 'systemd' ? (
+                              <Server className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <Activity className="w-4 h-4 text-orange-500" />
+                            )}
+                            <span className="font-medium">{service.name}</span>
+                          </div>
+                          <Badge variant={service.status === 'running' ? 'default' : service.status === 'stopped' ? 'secondary' : 'destructive'}>
+                            {service.status}
+                          </Badge>
+                        </div>
+                        <div className="text-right text-sm text-muted-foreground">
+                          <div>{service.description}</div>
+                          {service.port && (
+                            <div className="text-xs">Port: {service.port}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-muted-foreground">
+                      <Server className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>Geen services gevonden</p>
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
             </CardContent>
           </Card>
         ))}

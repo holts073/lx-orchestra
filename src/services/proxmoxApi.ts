@@ -13,6 +13,15 @@ export interface ProxmoxContainer {
   template: string;
   net0?: string;
   node: string;
+  services?: ContainerService[];
+}
+
+export interface ContainerService {
+  name: string;
+  type: 'systemd' | 'docker' | 'process';
+  status: 'running' | 'stopped' | 'error';
+  port?: number;
+  description?: string;
 }
 
 export interface ProxmoxConfig {
@@ -197,16 +206,78 @@ class ProxmoxApiService {
     ];
   }
 
-  async startContainer(node: string, vmid: number) {
-    return this.makeRequest(`/nodes/${node}/lxc/${vmid}/status/start`);
+  async startContainer(node: string, vmid: number): Promise<void> {
+    try {
+      await this.makePostRequest(`/nodes/${node}/lxc/${vmid}/status/start`);
+    } catch (error) {
+      console.error(`Failed to start container ${vmid}:`, error);
+      throw error;
+    }
   }
 
-  async stopContainer(node: string, vmid: number) {
-    return this.makeRequest(`/nodes/${node}/lxc/${vmid}/status/stop`);
+  async stopContainer(node: string, vmid: number): Promise<void> {
+    try {
+      await this.makePostRequest(`/nodes/${node}/lxc/${vmid}/status/stop`);
+    } catch (error) {
+      console.error(`Failed to stop container ${vmid}:`, error);
+      throw error;
+    }
   }
 
-  async restartContainer(node: string, vmid: number) {
-    return this.makeRequest(`/nodes/${node}/lxc/${vmid}/status/reboot`);
+  async restartContainer(node: string, vmid: number): Promise<void> {
+    try {
+      await this.makePostRequest(`/nodes/${node}/lxc/${vmid}/status/reboot`);
+    } catch (error) {
+      console.error(`Failed to restart container ${vmid}:`, error);
+      throw error;
+    }
+  }
+
+  async getContainerServices(node: string, vmid: number): Promise<ContainerService[]> {
+    try {
+      // In a real implementation, this would call the Proxmox API
+      // For now, return mock data
+      return this.getMockServices(vmid);
+    } catch (error) {
+      console.error(`Failed to get services for container ${vmid}:`, error);
+      return this.getMockServices(vmid);
+    }
+  }
+
+  private async makePostRequest(endpoint: string, data?: any) {
+    if (!this.config) {
+      throw new Error('Proxmox configuration not set');
+    }
+
+    const url = `https://${this.config.host}:${this.config.port}/api2/json${endpoint}`;
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.config.useApiToken && this.config.apiToken) {
+      headers['Authorization'] = `PVEAPIToken=${this.config.apiToken}`;
+    } else {
+      headers['Authorization'] = `Basic ${btoa(`${this.config.username}:${this.config.password}`)}`;
+    }
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Proxmox API error: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      return responseData.data;
+    } catch (error) {
+      console.error('Proxmox API POST request failed:', error);
+      throw error;
+    }
   }
 
   formatUptime(seconds: number): string {
@@ -231,6 +302,35 @@ class ProxmoxApiService {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  private getMockServices(vmid: number): ContainerService[] {
+    const serviceMap: Record<number, ContainerService[]> = {
+      100: [ // web-server
+        { name: 'nginx', type: 'systemd', status: 'running', port: 80, description: 'Web server' },
+        { name: 'php8.2-fpm', type: 'systemd', status: 'running', port: 9000, description: 'PHP FastCGI' },
+        { name: 'redis', type: 'docker', status: 'running', port: 6379, description: 'Cache database' },
+      ],
+      101: [ // database
+        { name: 'postgresql', type: 'systemd', status: 'running', port: 5432, description: 'PostgreSQL Database' },
+        { name: 'pgbouncer', type: 'systemd', status: 'running', port: 6432, description: 'Connection pooler' },
+      ],
+      102: [ // backup-service
+        { name: 'restic', type: 'process', status: 'stopped', description: 'Backup service' },
+        { name: 'cron', type: 'systemd', status: 'stopped', description: 'Task scheduler' },
+      ],
+      103: [ // monitoring
+        { name: 'prometheus', type: 'docker', status: 'running', port: 9090, description: 'Monitoring system' },
+        { name: 'grafana', type: 'docker', status: 'running', port: 3000, description: 'Analytics dashboard' },
+        { name: 'node-exporter', type: 'systemd', status: 'running', port: 9100, description: 'System metrics' },
+      ],
+      104: [ // mail-server
+        { name: 'postfix', type: 'systemd', status: 'error', port: 25, description: 'SMTP server' },
+        { name: 'dovecot', type: 'systemd', status: 'error', port: 993, description: 'IMAP server' },
+      ],
+    };
+    
+    return serviceMap[vmid] || [];
   }
 }
 
