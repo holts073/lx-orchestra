@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import { Settings, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { proxmoxApi, type ProxmoxConfig } from "@/services/proxmoxApi";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +16,8 @@ export function ProxmoxConfig() {
     port: parseInt(localStorage.getItem('proxmox_port') || '8006'),
     username: localStorage.getItem('proxmox_username') || 'root@pam',
     password: '',
+    apiToken: localStorage.getItem('proxmox_api_token') || '',
+    useApiToken: localStorage.getItem('proxmox_use_api_token') === 'true',
     node: localStorage.getItem('proxmox_node') || 'pve',
   });
   
@@ -30,15 +33,33 @@ export function ProxmoxConfig() {
     }
   }, []);
 
-  const handleConfigChange = (key: keyof ProxmoxConfig, value: string | number) => {
+  const handleConfigChange = (key: keyof ProxmoxConfig, value: string | number | boolean) => {
     setConfig(prev => ({ ...prev, [key]: value }));
   };
 
   const testConnection = async () => {
-    if (!config.host || !config.username || !config.password) {
+    if (!config.host || !config.username) {
       toast({
         title: "Incomplete configuratie",
-        description: "Vul alle vereiste velden in.",
+        description: "Vul host en gebruikersnaam in.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!config.useApiToken && !config.password) {
+      toast({
+        title: "Authenticatie vereist",
+        description: "Vul wachtwoord in of gebruik API token.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (config.useApiToken && !config.apiToken) {
+      toast({
+        title: "API Token vereist",
+        description: "Vul API token in voor authenticatie.",
         variant: "destructive",
       });
       return;
@@ -56,6 +77,10 @@ export function ProxmoxConfig() {
       localStorage.setItem('proxmox_port', config.port.toString());
       localStorage.setItem('proxmox_username', config.username);
       localStorage.setItem('proxmox_node', config.node || 'pve');
+      localStorage.setItem('proxmox_use_api_token', config.useApiToken.toString());
+      if (config.useApiToken && config.apiToken) {
+        localStorage.setItem('proxmox_api_token', config.apiToken);
+      }
 
       toast({
         title: "Verbinding succesvol",
@@ -78,11 +103,15 @@ export function ProxmoxConfig() {
     localStorage.removeItem('proxmox_port');
     localStorage.removeItem('proxmox_username');
     localStorage.removeItem('proxmox_node');
+    localStorage.removeItem('proxmox_api_token');
+    localStorage.removeItem('proxmox_use_api_token');
     setConfig({
       host: '',
       port: 8006,
       username: 'root@pam',
       password: '',
+      apiToken: '',
+      useApiToken: false,
       node: 'pve',
     });
     setIsConnected(false);
@@ -113,6 +142,7 @@ export function ProxmoxConfig() {
         <AlertDescription>
           Configureer de verbinding met je Proxmox VE server om LXC containers automatisch te detecteren.
           <strong> Zorg ervoor dat CORS is geconfigureerd op je Proxmox server.</strong>
+          {' '}Voor productie gebruik wordt API Token authenticatie aanbevolen.
         </AlertDescription>
       </Alert>
 
@@ -144,26 +174,65 @@ export function ProxmoxConfig() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Gebruikersnaam</Label>
-              <Input
-                id="username"
-                placeholder="root@pam"
-                value={config.username}
-                onChange={(e) => handleConfigChange('username', e.target.value)}
-              />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Authenticatie Methode</Label>
+                <p className="text-xs text-muted-foreground">
+                  Kies tussen wachtwoord of API token authenticatie
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="auth-toggle" className="text-sm">
+                  {config.useApiToken ? 'API Token' : 'Wachtwoord'}
+                </Label>
+                <Switch
+                  id="auth-toggle"
+                  checked={config.useApiToken}
+                  onCheckedChange={(checked) => handleConfigChange('useApiToken', checked)}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Wachtwoord</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Proxmox wachtwoord"
-                value={config.password}
-                onChange={(e) => handleConfigChange('password', e.target.value)}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Gebruikersnaam</Label>
+                <Input
+                  id="username"
+                  placeholder={config.useApiToken ? "gebruiker@pam!tokenid" : "root@pam"}
+                  value={config.username}
+                  onChange={(e) => handleConfigChange('username', e.target.value)}
+                />
+                {config.useApiToken && (
+                  <p className="text-xs text-muted-foreground">
+                    Formaat: gebruiker@realm!tokenid
+                  </p>
+                )}
+              </div>
+
+              {config.useApiToken ? (
+                <div className="space-y-2">
+                  <Label htmlFor="apiToken">API Token</Label>
+                  <Input
+                    id="apiToken"
+                    type="password"
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    value={config.apiToken}
+                    onChange={(e) => handleConfigChange('apiToken', e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="password">Wachtwoord</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Proxmox wachtwoord"
+                    value={config.password}
+                    onChange={(e) => handleConfigChange('password', e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </div>
 

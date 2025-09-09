@@ -20,6 +20,8 @@ export interface ProxmoxConfig {
   port: number;
   username: string;
   password: string;
+  apiToken?: string;
+  useApiToken: boolean;
   node?: string;
 }
 
@@ -37,13 +39,20 @@ class ProxmoxApiService {
 
     const url = `https://${this.config.host}:${this.config.port}/api2/json${endpoint}`;
     
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.config.useApiToken && this.config.apiToken) {
+      headers['Authorization'] = `PVEAPIToken=${this.config.apiToken}`;
+    } else {
+      headers['Authorization'] = `Basic ${btoa(`${this.config.username}:${this.config.password}`)}`;
+    }
+    
     try {
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Authorization': `Basic ${btoa(`${this.config.username}:${this.config.password}`)}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         // In production, you'd handle CORS and certificates properly
       });
 

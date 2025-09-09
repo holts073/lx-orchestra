@@ -5,6 +5,9 @@ import { Overview } from "@/components/dashboard/Overview";
 import { ContainerList } from "@/components/dashboard/ContainerList";
 import { UpdateManager } from "@/components/dashboard/UpdateManager";
 import { ProxmoxConfig } from "@/components/dashboard/ProxmoxConfig";
+import { UserManagement } from "@/components/dashboard/UserManagement";
+import { ServerSettings } from "@/components/dashboard/ServerSettings";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -32,7 +35,32 @@ const Index = () => {
           </div>
         );
       case "settings":
-        return <ProxmoxConfig />;
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Instellingen</h2>
+              <p className="text-muted-foreground">
+                Beheer systeem-, gebruikers- en Proxmox-instellingen
+              </p>
+            </div>
+            <Tabs defaultValue="proxmox" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="proxmox">Proxmox</TabsTrigger>
+                <TabsTrigger value="users">Gebruikers</TabsTrigger>
+                <TabsTrigger value="server">Server</TabsTrigger>
+              </TabsList>
+              <TabsContent value="proxmox" className="mt-6">
+                <ProxmoxConfig />
+              </TabsContent>
+              <TabsContent value="users" className="mt-6">
+                <UserManagement />
+              </TabsContent>
+              <TabsContent value="server" className="mt-6">
+                <ServerSettings />
+              </TabsContent>
+            </Tabs>
+          </div>
+        );
       default:
         return <Overview />;
     }
